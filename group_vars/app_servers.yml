@@ -1,0 +1,31 @@
+---
+# CIS Hardening Overrides for Application Servers
+# GeoServer (nonprod-geo-1), PostgreSQL (nonprod-postgresql-1)
+
+# ============================================================
+# Firewall (UFW)
+# ============================================================
+ubtu24cis_firewall_package: "ufw"
+
+ubtu24cis_ufw_allow_out_ports:
+  - { port: "53",   proto: tcp }   # DNS
+  - { port: "53",   proto: udp }
+  - { port: "80",   proto: tcp }   # HTTP
+  - { port: "443",  proto: tcp }   # HTTPS
+  - { port: "123",  proto: udp }   # NTP
+
+# ============================================================
+# AppArmor — complain mode ก่อน เพื่อ observe ว่า app ใช้อะไร
+# เปลี่ยนเป็น enforce หลังจาก verify แล้ว
+# ============================================================
+ubtu24cis_apparmor_disable: false
+ubtu24cis_apparmor_mode: complain
+
+# ============================================================
+# Auditd — ไม่ halt ระบบถ้า disk เต็ม
+# ============================================================
+ubtu24cis_auditd_disk_full_action: syslog
+ubtu24cis_auditd_disk_error_action: syslog
+ubtu24cis_max_log_file_action: rotate
+
+ubtu24cis_ipv6_required: true

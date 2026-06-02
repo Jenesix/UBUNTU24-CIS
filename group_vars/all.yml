@@ -1,0 +1,25 @@
+---
+# ============================================================
+# Audit Settings
+# role จะรัน pre-audit → harden → post-audit ให้อัตโนมัติ
+# ============================================================
+
+setup_audit: true          # ให้ role ติดตั้ง goss + pull audit content
+run_audit: true            # รัน pre + post audit
+fetch_audit_output: true   # ดึงผล JSON กลับมาเก็บที่ bastion
+audit_output_destination: /opt/audit_summaries/
+
+# ---- ถ้า node เข้า internet ได้ (ใช้แบบนี้) ----
+get_audit_binary_method: download
+audit_content: git
+
+# ---- ถ้า node ไม่มี internet (comment บน 2 บรรทัด แล้ว uncomment 4 บรรทัดนี้) ----
+# get_audit_binary_method: copy
+# audit_bin_copy_location: ~/goss          # path ของ goss binary บน bastion
+# audit_content: copy
+# audit_conf_source: ~/UBUNTU24-CIS-Audit/ # path ของ UBUNTU24-CIS-Audit บน bastion
+
+# ============================================================
+# Common Settings
+# ============================================================
+skip_reboot: true   # ไม่ reboot อัตโนมัติ — reboot เองหลัง verify แล้ว
