@@ -69,3 +69,5 @@ benchparse/
 
 # ansible-lint cache
 .ansible/
+
+inventory/*.ini
