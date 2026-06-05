@@ -17,7 +17,7 @@ ubtu24cis_rule_3_3_7: false   # rp_filter — Cilium eBPF route ข้าม int
 # ============================================================
 # Firewall (UFW)
 # ============================================================
-ubtu24cis_firewall_package: "ufw"
+ubtu24cis_firewall_package: "none"
 
 ubtu24cis_ufw_allow_out_ports:
   - { port: "53",    proto: tcp }

@@ -1,0 +1,171 @@
+---
+# =============================================================================
+# CIS Hardening — POC Environment
+# =============================================================================
+# Usage:
+#   ansible-playbook playbooks/cis_harden_poc.yml -i inventory/poc.ini --ask-become-pass
+#
+# Dry-run:
+#   ansible-playbook playbooks/cis_harden_poc.yml -i inventory/poc.ini --ask-become-pass --check
+
+# -----------------------------------------------------------------------------
+# PLAY 1: HAProxy
+# -----------------------------------------------------------------------------
+- name: CIS Harden POC HAProxy
+  hosts: poc_haproxy
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "none"
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+
+  post_tasks:
+    - name: "[Post] Set sysctl for HAProxy"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-haproxy.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,             value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,     value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter, value: "0" }
+
+    - name: "[Post] Ensure HAProxy service is running"
+      ansible.builtin.systemd:
+        name: haproxy
+        state: started
+        enabled: true
+
+# -----------------------------------------------------------------------------
+# PLAY 2: RKE2 Control Plane
+# -----------------------------------------------------------------------------
+- name: CIS Harden POC RKE2 Control Plane
+  hosts: poc_control_plane
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "none"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+
+  post_tasks:
+    - name: "[Post] Set sysctl for RKE2 Control Plane"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-rke2.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,                 value: "1" }
+        - { name: net.ipv6.conf.all.forwarding,        value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,         value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter,     value: "0" }
+        - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances,       value: "8192" }
+        - { name: fs.inotify.max_user_watches,         value: "524288" }
+
+    - name: "[Post] Load kernel modules"
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: "[Post] Persist kernel modules on boot"
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/rke2.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - br_netfilter
+        - overlay
+
+# -----------------------------------------------------------------------------
+# PLAY 3: RKE2 Workers
+# -----------------------------------------------------------------------------
+- name: CIS Harden POC RKE2 Workers
+  hosts: poc_workers
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "none"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+
+  post_tasks:
+    - name: "[Post] Set sysctl for RKE2 Workers"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-rke2.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,                 value: "1" }
+        - { name: net.ipv6.conf.all.forwarding,        value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,         value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter,     value: "0" }
+        - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances,       value: "8192" }
+        - { name: fs.inotify.max_user_watches,         value: "524288" }
+
+    - name: "[Post] Load kernel modules"
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+
+    - name: "[Post] Persist kernel modules on boot"
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/rke2.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - br_netfilter
+        - overlay

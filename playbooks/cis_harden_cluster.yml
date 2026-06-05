@@ -3,13 +3,16 @@
 # CIS Ubuntu 24 Hardening — UAT Non-Prod Cluster
 # =============================================================================
 # Usage:
-#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini
+#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --ask-become-pass
 #
-# Dry-run:
-#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --check
+# Dry-run ก่อน harden:
+#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --ask-become-pass --check
 #
-# เฉพาะกลุ่มเดียว:
-#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --limit app_servers
+# เฉพาะ haproxy:
+#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --limit haproxy --ask-become-pass
+#
+# เฉพาะ rke2:
+#   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --limit rke2_cluster --ask-become-pass
 # =============================================================================
 
 # -----------------------------------------------------------------------------

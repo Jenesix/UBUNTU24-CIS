@@ -7,7 +7,7 @@
 setup_audit: true          # ให้ role ติดตั้ง goss + pull audit content
 run_audit: true            # รัน pre + post audit
 fetch_audit_output: true   # ดึงผล JSON กลับมาเก็บที่ bastion
-audit_output_destination: /opt/audit_summaries/
+audit_output_destination: ~/audit_summaries/
 
 # ---- ถ้า node เข้า internet ได้ (ใช้แบบนี้) ----
 get_audit_binary_method: download

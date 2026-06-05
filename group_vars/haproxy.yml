@@ -11,17 +11,7 @@ ubtu24cis_rule_3_3_7: false   # rp_filter
 # ============================================================
 # Firewall (UFW)
 # ============================================================
-ubtu24cis_firewall_package: "ufw"
-
-ubtu24cis_ufw_allow_out_ports:
-  - { port: "53",   proto: tcp }
-  - { port: "53",   proto: udp }
-  - { port: "80",   proto: tcp }
-  - { port: "443",  proto: tcp }
-  - { port: "123",  proto: udp }
-  - { port: "6443", proto: tcp }   # RKE2 API Server
-  - { port: "9345", proto: tcp }   # RKE2 registration
-  - { port: "8404", proto: tcp }   # HAProxy stats page
+ubtu24cis_firewall_package: "none"
 
 # ============================================================
 # AppArmor

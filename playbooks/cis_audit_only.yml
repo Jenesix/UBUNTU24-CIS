@@ -3,10 +3,13 @@
 # CIS Audit Only — ดู baseline ก่อน harden (ไม่แก้ไขระบบ)
 # =============================================================================
 # Usage:
-#   ansible-playbook playbooks/cis_audit_only.yml -i inventory/cluster.ini
+#   ansible-playbook playbooks/cis_audit_only.yml -i inventory/cluster.ini --ask-become-pass
 #
-# เฉพาะกลุ่มเดียว:
-#   ansible-playbook playbooks/cis_audit_only.yml -i inventory/cluster.ini --limit app_servers
+# เฉพาะ haproxy:
+#   ansible-playbook playbooks/cis_audit_only.yml -i inventory/cluster.ini --limit haproxy --ask-become-pass
+#
+# เฉพาะ rke2:
+#   ansible-playbook playbooks/cis_audit_only.yml -i inventory/cluster.ini --limit rke2_cluster --ask-become-pass
 # =============================================================================
 
 - name: CIS Audit Only — Ubuntu 24.04
@@ -19,6 +22,7 @@
     run_audit: true
     setup_audit: true
     fetch_audit_output: true
+    audit_output_destination: /home/ubuntu/audit_summaries/
 
   roles:
     - role: "{{ playbook_dir | dirname }}"

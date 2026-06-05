@@ -1,0 +1,34 @@
+---
+# =============================================================================
+# CIS Audit Only — Production + Management Clusters
+# =============================================================================
+# Usage:
+#   ansible-playbook playbooks/cis_audit_prod.yml -i inventory/prod.ini --ask-become-pass
+#
+# เฉพาะ haproxy:
+#   ansible-playbook playbooks/cis_audit_prod.yml -i inventory/prod.ini --limit all_haproxy --ask-become-pass
+#
+# เฉพาะ rke2:
+#   ansible-playbook playbooks/cis_audit_prod.yml -i inventory/prod.ini --limit all_rke2 --ask-become-pass
+#
+# เฉพาะ management cluster:
+#   ansible-playbook playbooks/cis_audit_prod.yml -i inventory/prod.ini --limit mgmt_haproxy,mgmt_cluster --ask-become-pass
+#
+# เฉพาะ production cluster:
+#   ansible-playbook playbooks/cis_audit_prod.yml -i inventory/prod.ini --limit prod_haproxy,prod_cluster --ask-become-pass
+# =============================================================================
+
+- name: CIS Audit Only — Production + Management Ubuntu 24.04
+  hosts: all_haproxy,all_rke2
+  become: true
+  gather_facts: true
+
+  vars:
+    audit_only: true
+    run_audit: true
+    setup_audit: true
+    fetch_audit_output: true
+    audit_output_destination: /home/ubuntu/audit_summaries/
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"

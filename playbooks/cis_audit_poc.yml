@@ -1,0 +1,21 @@
+---
+# =============================================================================
+# CIS Audit Only — POC Environment
+# =============================================================================
+# Usage:
+#   ansible-playbook playbooks/cis_audit_poc.yml -i inventory/poc.ini --ask-become-pass
+
+- name: CIS Audit Only — POC Ubuntu 24.04
+  hosts: poc_all
+  become: true
+  gather_facts: true
+
+  vars:
+    audit_only: true
+    run_audit: true
+    setup_audit: true
+    fetch_audit_output: true
+    audit_output_destination: /home/ubuntu/audit_summaries/
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
