@@ -1,0 +1,528 @@
+---
+# =============================================================================
+# CIS Ubuntu 24 Hardening — Production + Management Clusters
+# =============================================================================
+# Usage:
+#   ansible-playbook playbooks/cis_harden_prod.yml -i inventory/prod.ini --ask-become-pass
+#
+# Dry-run:
+#   ansible-playbook playbooks/cis_harden_prod.yml -i inventory/prod.ini --ask-become-pass --check
+#
+# เฉพาะ mgmt cluster:
+#   ansible-playbook playbooks/cis_harden_prod.yml -i inventory/prod.ini --limit mgmt_cluster:mgmt_haproxy --ask-become-pass
+#
+# เฉพาะ prod cluster:
+#   ansible-playbook playbooks/cis_harden_prod.yml -i inventory/prod.ini --limit prod_cluster:prod_haproxy --ask-become-pass
+
+# -----------------------------------------------------------------------------
+# PLAY 0: Pre-configure AIDE (ทุก RKE2 node ทั้ง mgmt และ prod)
+# -----------------------------------------------------------------------------
+- name: Pre-configure AIDE excludes for all RKE2 nodes
+  hosts: all_rke2
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install AIDE package
+      ansible.builtin.apt:
+        name:
+          - aide
+          - aide-common
+        state: present
+        update_cache: true
+
+    - name: Exclude RKE2/container paths from AIDE
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        line: "{{ item }}"
+      loop:
+        - '!/var/lib/rancher'
+        - '!/var/lib/containerd'
+        - '!/run'
+        - '!/tmp'
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Management HAProxy
+# -----------------------------------------------------------------------------
+- name: CIS Harden Management HAProxy Nodes
+  hosts: mgmt_haproxy
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+      tags: cis
+
+  post_tasks:
+    - name: "[Post] Open inbound ports for Management HAProxy"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: "{{ item.proto }}"
+        to_port: "{{ item.port | string }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",   proto: tcp, comment: "SSH" }
+        - { port: "80",   proto: tcp, comment: "HAProxy HTTP frontend" }
+        - { port: "443",  proto: tcp, comment: "HAProxy HTTPS / Rancher UI" }
+        - { port: "6443", proto: tcp, comment: "HAProxy -> RKE2 API Server" }
+        - { port: "9345", proto: tcp, comment: "HAProxy -> RKE2 registration" }
+        - { port: "8404", proto: tcp, comment: "HAProxy stats page" }
+      notify: Reload ufw
+      tags: firewall
+
+    - name: "[Post] Set sysctl for Management HAProxy"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-haproxy.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,             value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,     value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter, value: "0" }
+      tags: sysctl
+
+    - name: "[Post] Ensure HAProxy service is running"
+      ansible.builtin.systemd:
+        name: haproxy
+        state: started
+        enabled: true
+      tags: service
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Management RKE2 Control Plane
+# -----------------------------------------------------------------------------
+- name: CIS Harden Management RKE2 Control Plane Nodes
+  hosts: mgmt_control_plane
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+      tags: cis
+
+  post_tasks:
+    - name: "[Post] Open inbound ports for Management Control Plane"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: "{{ item.proto }}"
+        to_port: "{{ item.port | string }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",          proto: tcp, comment: "SSH" }
+        - { port: "6443",        proto: tcp, comment: "RKE2 API Server" }
+        - { port: "9345",        proto: tcp, comment: "RKE2 registration" }
+        - { port: "2379",        proto: tcp, comment: "etcd client" }
+        - { port: "2380",        proto: tcp, comment: "etcd peer" }
+        - { port: "10250",       proto: tcp, comment: "Kubelet" }
+        - { port: "10257",       proto: tcp, comment: "kube-controller-manager" }
+        - { port: "10259",       proto: tcp, comment: "kube-scheduler" }
+        - { port: "4240",        proto: tcp, comment: "Cilium health check" }
+        - { port: "8472",        proto: udp, comment: "Cilium VXLAN overlay" }
+        - { port: "30000:32767", proto: tcp, comment: "NodePort Services" }
+      notify: Reload ufw
+      tags: firewall
+
+    - name: "[Post] Set sysctl for Management Control Plane"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-rke2.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,                 value: "1" }
+        - { name: net.ipv6.conf.all.forwarding,        value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,         value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter,     value: "0" }
+        - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances,       value: "8192" }
+        - { name: fs.inotify.max_user_watches,         value: "524288" }
+      tags: sysctl
+
+    - name: "[Post] Load kernel modules"
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+    - name: "[Post] Persist kernel modules on boot"
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/rke2.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Management RKE2 Workers
+# -----------------------------------------------------------------------------
+- name: CIS Harden Management RKE2 Worker Nodes
+  hosts: mgmt_workers
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+      tags: cis
+
+  post_tasks:
+    - name: "[Post] Open inbound ports for Management Workers"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: "{{ item.proto }}"
+        to_port: "{{ item.port | string }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",          proto: tcp, comment: "SSH" }
+        - { port: "10250",       proto: tcp, comment: "Kubelet" }
+        - { port: "4240",        proto: tcp, comment: "Cilium health check" }
+        - { port: "8472",        proto: udp, comment: "Cilium VXLAN overlay" }
+        - { port: "30000:32767", proto: tcp, comment: "NodePort Services" }
+      notify: Reload ufw
+      tags: firewall
+
+    - name: "[Post] Set sysctl for Management Workers"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-rke2.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,                 value: "1" }
+        - { name: net.ipv6.conf.all.forwarding,        value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,         value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter,     value: "0" }
+        - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances,       value: "8192" }
+        - { name: fs.inotify.max_user_watches,         value: "524288" }
+      tags: sysctl
+
+    - name: "[Post] Load kernel modules"
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+    - name: "[Post] Persist kernel modules on boot"
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/rke2.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
+# -----------------------------------------------------------------------------
+# PLAY 4: Production HAProxy
+# -----------------------------------------------------------------------------
+- name: CIS Harden Production HAProxy Nodes
+  hosts: prod_haproxy
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+      tags: cis
+
+  post_tasks:
+    - name: "[Post] Open inbound ports for Production HAProxy"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: "{{ item.proto }}"
+        to_port: "{{ item.port | string }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",   proto: tcp, comment: "SSH" }
+        - { port: "80",   proto: tcp, comment: "HAProxy HTTP frontend" }
+        - { port: "443",  proto: tcp, comment: "HAProxy HTTPS / Rancher UI" }
+        - { port: "6443", proto: tcp, comment: "HAProxy -> RKE2 API Server" }
+        - { port: "9345", proto: tcp, comment: "HAProxy -> RKE2 registration" }
+        - { port: "8404", proto: tcp, comment: "HAProxy stats page" }
+      notify: Reload ufw
+      tags: firewall
+
+    - name: "[Post] Set sysctl for Production HAProxy"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-haproxy.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,             value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,     value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter, value: "0" }
+      tags: sysctl
+
+    - name: "[Post] Ensure HAProxy service is running"
+      ansible.builtin.systemd:
+        name: haproxy
+        state: started
+        enabled: true
+      tags: service
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
+# -----------------------------------------------------------------------------
+# PLAY 5: Production RKE2 Control Plane
+# -----------------------------------------------------------------------------
+- name: CIS Harden Production RKE2 Control Plane Nodes
+  hosts: prod_control_plane
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+      tags: cis
+
+  post_tasks:
+    - name: "[Post] Open inbound ports for Production Control Plane"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: "{{ item.proto }}"
+        to_port: "{{ item.port | string }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",          proto: tcp, comment: "SSH" }
+        - { port: "6443",        proto: tcp, comment: "RKE2 API Server" }
+        - { port: "9345",        proto: tcp, comment: "RKE2 registration" }
+        - { port: "2379",        proto: tcp, comment: "etcd client" }
+        - { port: "2380",        proto: tcp, comment: "etcd peer" }
+        - { port: "10250",       proto: tcp, comment: "Kubelet" }
+        - { port: "10257",       proto: tcp, comment: "kube-controller-manager" }
+        - { port: "10259",       proto: tcp, comment: "kube-scheduler" }
+        - { port: "4240",        proto: tcp, comment: "Cilium health check" }
+        - { port: "8472",        proto: udp, comment: "Cilium VXLAN overlay" }
+        - { port: "30000:32767", proto: tcp, comment: "NodePort Services" }
+      notify: Reload ufw
+      tags: firewall
+
+    - name: "[Post] Set sysctl for Production Control Plane"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-rke2.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,                 value: "1" }
+        - { name: net.ipv6.conf.all.forwarding,        value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,         value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter,     value: "0" }
+        - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances,       value: "8192" }
+        - { name: fs.inotify.max_user_watches,         value: "524288" }
+      tags: sysctl
+
+    - name: "[Post] Load kernel modules"
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+    - name: "[Post] Persist kernel modules on boot"
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/rke2.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
+# -----------------------------------------------------------------------------
+# PLAY 6: Production RKE2 Workers
+# -----------------------------------------------------------------------------
+- name: CIS Harden Production RKE2 Worker Nodes
+  hosts: prod_workers
+  become: true
+  gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
+  roles:
+    - role: "{{ playbook_dir | dirname }}"
+      tags: cis
+
+  post_tasks:
+    - name: "[Post] Open inbound ports for Production Workers"
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: "{{ item.proto }}"
+        to_port: "{{ item.port | string }}"
+        comment: "{{ item.comment }}"
+      loop:
+        - { port: "22",          proto: tcp, comment: "SSH" }
+        - { port: "10250",       proto: tcp, comment: "Kubelet" }
+        - { port: "4240",        proto: tcp, comment: "Cilium health check" }
+        - { port: "8472",        proto: udp, comment: "Cilium VXLAN overlay" }
+        - { port: "30000:32767", proto: tcp, comment: "NodePort Services" }
+      notify: Reload ufw
+      tags: firewall
+
+    - name: "[Post] Set sysctl for Production Workers"
+      ansible.posix.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/99-rke2.conf
+        reload: true
+      loop:
+        - { name: net.ipv4.ip_forward,                 value: "1" }
+        - { name: net.ipv6.conf.all.forwarding,        value: "1" }
+        - { name: net.ipv4.conf.all.rp_filter,         value: "0" }
+        - { name: net.ipv4.conf.default.rp_filter,     value: "0" }
+        - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+        - { name: fs.inotify.max_user_instances,       value: "8192" }
+        - { name: fs.inotify.max_user_watches,         value: "524288" }
+      tags: sysctl
+
+    - name: "[Post] Load kernel modules"
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+    - name: "[Post] Persist kernel modules on boot"
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/rke2.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop:
+        - br_netfilter
+        - overlay
+      tags: kernel
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true

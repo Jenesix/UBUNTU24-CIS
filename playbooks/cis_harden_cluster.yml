@@ -5,7 +5,7 @@
 # Usage:
 #   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --ask-become-pass
 #
-# Dry-run ก่อน harden:
+# Dry-run:
 #   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --ask-become-pass --check
 #
 # เฉพาะ haproxy:
@@ -13,7 +13,33 @@
 #
 # เฉพาะ rke2:
 #   ansible-playbook playbooks/cis_harden_cluster.yml -i inventory/cluster.ini --limit rke2_cluster --ask-become-pass
-# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 0: Pre-configure AIDE (ต้องทำก่อน CIS role ทุก node ที่มี RKE2)
+# -----------------------------------------------------------------------------
+- name: Pre-configure AIDE excludes for RKE2 nodes
+  hosts: rke2_cluster
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install AIDE package
+      ansible.builtin.apt:
+        name:
+          - aide
+          - aide-common
+        state: present
+        update_cache: true
+
+    - name: Exclude RKE2/container paths from AIDE
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        line: "{{ item }}"
+      loop:
+        - '!/var/lib/rancher'
+        - '!/var/lib/containerd'
+        - '!/run'
+        - '!/tmp'
 
 # -----------------------------------------------------------------------------
 # PLAY 1: HAProxy Load Balancers
@@ -23,12 +49,17 @@
   become: true
   gather_facts: true
 
-  pre_tasks:
-    - name: "[Pre] Verify HAProxy is installed"
-      ansible.builtin.package:
-        name: haproxy
-        state: present
-      tags: always
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
 
   roles:
     - role: "{{ playbook_dir | dirname }}"
@@ -85,6 +116,19 @@
   become: true
   gather_facts: true
 
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
+
   roles:
     - role: "{{ playbook_dir | dirname }}"
       tags: cis
@@ -130,7 +174,7 @@
         - { name: fs.inotify.max_user_watches,         value: "524288" }
       tags: sysctl
 
-    - name: "[Post] Load kernel modules for containerd"
+    - name: "[Post] Load kernel modules"
       community.general.modprobe:
         name: "{{ item }}"
         state: present
@@ -162,6 +206,19 @@
   hosts: rke2_workers
   become: true
   gather_facts: true
+
+  vars:
+    skip_reboot: true
+    ubtu24cis_firewall_package: "ufw"
+    ubtu24cis_rule_1_1_1_6: false
+    ubtu24cis_rule_3_3_1: false
+    ubtu24cis_rule_3_3_7: false
+    ubtu24cis_apparmor_disable: false
+    ubtu24cis_apparmor_mode: complain
+    ubtu24cis_auditd_disk_full_action: syslog
+    ubtu24cis_auditd_disk_error_action: syslog
+    ubtu24cis_max_log_file_action: rotate
+    ubtu24cis_ipv6_required: true
 
   roles:
     - role: "{{ playbook_dir | dirname }}"
@@ -202,7 +259,7 @@
         - { name: fs.inotify.max_user_watches,         value: "524288" }
       tags: sysctl
 
-    - name: "[Post] Load kernel modules for containerd"
+    - name: "[Post] Load kernel modules"
       community.general.modprobe:
         name: "{{ item }}"
         state: present
@@ -226,3 +283,5 @@
     - name: Reload ufw
       ansible.builtin.command: ufw reload
       changed_when: true
+
+# -----------------------------------------------------------------------------
