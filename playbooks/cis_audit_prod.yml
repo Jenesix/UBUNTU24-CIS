@@ -28,7 +28,7 @@
     run_audit: true
     setup_audit: true
     fetch_audit_output: true
-    audit_output_destination: /home/ubuntu/audit_summaries/
+    audit_output_destination: "{{ playbook_dir | dirname }}/audit_summaries/"
 
   roles:
     - role: "{{ playbook_dir | dirname }}"

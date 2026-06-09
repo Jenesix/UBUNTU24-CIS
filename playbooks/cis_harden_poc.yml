@@ -1,12 +1,29 @@
----
-# =============================================================================
-# CIS Hardening — POC Environment
-# =============================================================================
-# Usage:
-#   ansible-playbook playbooks/cis_harden_poc.yml -i inventory/poc.ini --ask-become-pass
-#
-# Dry-run:
-#   ansible-playbook playbooks/cis_harden_poc.yml -i inventory/poc.ini --ask-become-pass --check
+# -----------------------------------------------------------------------------
+# PLAY 0: Pre-configure AIDE (ต้องทำก่อน CIS role)
+# -----------------------------------------------------------------------------
+- name: Pre-configure AIDE excludes for RKE2 nodes
+  hosts: poc_control_plane:poc_workers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Install AIDE package
+      ansible.builtin.apt:
+        name:
+          - aide
+          - aide-common
+        state: present
+        update_cache: true
+
+    - name: Exclude RKE2/container paths from AIDE
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        line: "{{ item }}"
+      loop:
+        - '!/var/lib/rancher'
+        - '!/var/lib/containerd'
+        - '!/run'
+        - '!/tmp'
 
 # -----------------------------------------------------------------------------
 # PLAY 1: HAProxy
@@ -27,6 +44,8 @@
     ubtu24cis_auditd_disk_error_action: syslog
     ubtu24cis_max_log_file_action: rotate
     ubtu24cis_ipv6_required: true
+    ubtu24cis_aide_init_async: 7200   # เพิ่มตรงนี้
+    ubtu24cis_aide_init_poll: 30      # เพิ่มตรงนี้
 
   roles:
     - role: "{{ playbook_dir | dirname }}"
@@ -130,6 +149,20 @@
     ubtu24cis_auditd_disk_error_action: syslog
     ubtu24cis_max_log_file_action: rotate
     ubtu24cis_ipv6_required: true
+    ubtu24cis_aide_init_async: 7200
+    ubtu24cis_aide_init_poll: 30
+
+  pre_tasks:                                          # <-- เพิ่มตรงนี้
+    - name: Exclude RKE2/container paths from AIDE
+      ansible.builtin.lineinfile:
+        path: /etc/aide/aide.conf
+        line: "{{ item }}"
+        create: false
+      loop:
+        - '!/var/lib/rancher'
+        - '!/var/lib/containerd'
+        - '!/run'
+        - '!/tmp'
 
   roles:
     - role: "{{ playbook_dir | dirname }}"

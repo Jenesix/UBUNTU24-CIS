@@ -49,3 +49,6 @@ ubtu24cis_auditd_disk_error_action: syslog
 ubtu24cis_max_log_file_action: rotate
 
 ubtu24cis_ipv6_required: true
+
+ubtu24cis_aide_init_async: 7200   # เพิ่มเป็น 2 ชั่วโมง
+ubtu24cis_aide_init_poll: 30      # poll ถี่ขึ้นนิดนึง
